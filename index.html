@@ -124,7 +124,7 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
       <div><label for="f-e">Fine</label><input type="time" id="f-e"></div>
       <div><label for="f-p">Pausa (min)</label><input type="number" id="f-p" inputmode="numeric" min="0" step="5" placeholder="0"></div>
     </div>
-    <label for="f-h">Oppure ore totali (es. 7,5)</label>
+    <label for="f-h">Oppure ore totali (es. 7,5 o 7:30)</label>
     <input type="text" id="f-h" inputmode="decimal" placeholder="Lascia vuoto per usare inizio e fine">
     <label for="f-n">Nota</label>
     <div class="nw">
@@ -170,7 +170,9 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   var KEY="ore-lavoro-v1";
   var db={entries:{},target:8};
   try{var raw=localStorage.getItem(KEY);if(raw){var p=JSON.parse(raw);if(p&&p.entries){db=p;if(!db.target)db.target=8;}}}catch(e){}
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){}}
+  /* giornate scritte come "7:30" con la versione precedente: ricalcola il totale giusto */
+  for(var k0 in db.entries){var e0=db.entries[k0];if(e0&&e0.h&&/[:h]/i.test(String(e0.h))){var v0=hrs(e0.h);if(!isNaN(v0))e0.m=v0;}}
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(db));return true;}catch(e){toast("Memoria del telefono piena: modifica non salvata");return false;}}
   var pad=function(n){return n<10?"0"+n:""+n};
   var key=function(y,m,d){return y+"-"+pad(m+1)+"-"+pad(d)};
   var fmt=function(m){m=Math.round(m);return Math.floor(m/60)+":"+pad(m%60)};
@@ -180,19 +182,27 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   var GIO=["dom","lun","mar","mer","gio","ven","sab"];
 
   function minutes(s,e,p,h){
-    if(h!==""&&h!=null){var v=parseFloat(String(h).replace(",","."));return isNaN(v)||v<0?0:Math.round(v*60);}
+    if(h!==""&&h!=null){var v=hrs(h);return isNaN(v)?0:v;}
     if(!s||!e)return 0;
     var a=s.split(":"),b=e.split(":");
     var d=(+b[0]*60+ +b[1])-(+a[0]*60+ +a[1]);
     if(d<0)d+=1440;
     return Math.max(0,d-(parseInt(p)||0));
   }
+  /* ore totali: accetta 7 · 7,5 · 7.5 · 7:30 · 7h30 (restituisce minuti, NaN se non valido) */
+  function hrs(h){
+    var v=String(h).trim().toLowerCase().replace(/\s+/g,""),m=v.match(/^(\d{1,2})[:h](\d{0,2})$/),r;
+    if(m){if(+m[2]>59)return NaN;r=+m[1]*60+(+m[2]||0);}
+    else if(/^\d{1,2}([.,]\d+)?$/.test(v))r=Math.round(parseFloat(v.replace(",","."))*60);
+    else return NaN;
+    return r>1440?NaN:r;
+  }
   function weekdays(y,m){var n=new Date(y,m+1,0).getDate(),c=0;for(var d=1;d<=n;d++){var w=new Date(y,m,d).getDay();if(w>0&&w<6)c++;}return c;}
 
   function render(){
     var n=new Date(vy,vm+1,0).getDate(),sum=0,days=0,html="";
     $("mname").textContent=MES[vm]+" "+vy;
-    var tk=key(now.getFullYear(),now.getMonth(),now.getDate());
+    var t0=new Date(),tk=key(t0.getFullYear(),t0.getMonth(),t0.getDate());
     for(var d=1;d<=n;d++){
       var k=key(vy,vm,d),w=new Date(vy,vm,d).getDay(),en=db.entries[k],we=(w===0||w===6);
       var m=en?en.m:0;
@@ -201,7 +211,7 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
       var detail="";
       if(en){
         if(en.h!==""&&en.h!=null)detail="Ore inserite a mano";
-        else if(en.s&&en.e)detail=en.s+" – "+en.e+(en.p?" · pausa "+en.p+" min":"");
+        else if(en.s&&en.e)detail=en.s+" – "+en.e+((parseInt(en.p)||0)>0?" · pausa "+en.p+" min":"");
         if(en.ph&&en.ph.length)detail+=(detail?" · ":"")+en.ph.length+" foto";
         if(en.n)detail+=(detail?" · ":"")+en.n;
       }
@@ -225,6 +235,8 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
     calc();$("bg").classList.add("on");
   }
   function calc(){
+    var hv=$("f-h").value.trim();
+    if(hv&&isNaN(hrs(hv))){$("sh-calc").textContent="Ore non valide: scrivi ad esempio 7,5 oppure 7:30";return;}
     var m=minutes($("f-s").value,$("f-e").value,$("f-p").value,$("f-h").value);
     $("sh-calc").textContent=m>0?"Totale della giornata: "+fmt(m)+" ore":"Nessuna ora registrata";
   }
@@ -232,11 +244,12 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   function close(){try{if(rec&&listening)rec.stop();}catch(e){}$("bg4").classList.remove("on");$("bg").classList.remove("on");$("bg2").classList.remove("on");$("bg3").classList.remove("on");}
 
   $("list").addEventListener("click",function(ev){var b=ev.target.closest(".row");if(b)open(b.dataset.k);});
-  $("b-no").onclick=close;$("c-no").onclick=close;
+  $("b-no").onclick=close;$("c-no").onclick=function(){$("bg2").classList.remove("on");};
   $("bg").addEventListener("click",function(e){if(e.target===$("bg"))close();});
-  $("bg2").addEventListener("click",function(e){if(e.target===$("bg2"))close();});
+  $("bg2").addEventListener("click",function(e){if(e.target===$("bg2"))$("bg2").classList.remove("on");});
   $("b-ok").onclick=function(){
     var s=$("f-s").value,e=$("f-e").value,p=$("f-p").value,h=$("f-h").value.trim(),n=$("f-n").value.trim();
+    if(h&&isNaN(hrs(h))){toast("Ore non valide: scrivi ad esempio 7,5 oppure 7:30");$("f-h").focus();return;}
     var m=minutes(s,e,p,h);
     if(m===0&&!n&&!curPh.length){delete db.entries[cur];}
     else db.entries[cur]={s:s,e:e,p:p,h:h,n:n,m:m,ph:curPh.slice()};
@@ -245,7 +258,7 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   $("b-del").onclick=function(){delete db.entries[cur];save();close();render();};
   $("prev").onclick=function(){vm--;if(vm<0){vm=11;vy--;}render();};
   $("next").onclick=function(){vm++;if(vm>11){vm=0;vy++;}render();};
-  $("today").onclick=function(){vy=now.getFullYear();vm=now.getMonth();render();open(key(vy,vm,now.getDate()));};
+  $("today").onclick=function(){now=new Date();vy=now.getFullYear();vm=now.getMonth();render();open(key(vy,vm,now.getDate()));};
 
   var ym=function(){return vy+"-"+pad(vm+1)};
   function monthEntries(p){var o={};for(var k in db.entries){if(k.indexOf(p+"-")===0)o[k]=db.entries[k];}return o;}
@@ -253,7 +266,8 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   var cfn=null;
   function ask(title,text,label,fn){$("c-title").textContent=title;$("c-text").textContent=text;$("c-ok").textContent=label;cfn=fn;$("bg2").classList.add("on");}
   $("c-ok").onclick=function(){var f=cfn;close();if(f)f();};
-  function toast(t){var e=$("toast");e.textContent=t;e.classList.add("on");setTimeout(function(){e.classList.remove("on")},2200);}
+  var tT=null;
+  function toast(t){var e=$("toast");e.textContent=t;e.classList.add("on");clearTimeout(tT);tT=setTimeout(function(){e.classList.remove("on")},2200);}
   $("m-save").onclick=function(){
     var o=monthEntries(ym()),r=totalOf(o);
     if(!r.d){toast("Nessuna ora da salvare in questo mese");return;}
@@ -339,21 +353,19 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   $("f-file").onchange=onPick;$("f-cam").onchange=onPick;
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   $("mic").onclick=function(){
-    if(!SR){toast("Dettatura non disponibile: usa il microfono della tastiera");$("f-n").focus();return;}
+    var tip=function(){toast("Per dettare usa il microfono della tastiera");$("f-n").focus();};
+    if(!SR||window.navigator.standalone===true){tip();return;}
     if(listening){rec.stop();return;}
-    var base=$("f-n").value.replace(/\s+$/,"");
+    var base=$("f-n").value.replace(/\s+$/,""),got=false,failed=false,timer=null;
     rec=new SR();rec.lang="it-IT";rec.interimResults=true;rec.continuous=false;
-    rec.onresult=function(ev){var t="";for(var i=0;i<ev.results.length;i++)t+=ev.results[i][0].transcript;$("f-n").value=(base?base+" ":"")+t;};
-    rec.onend=function(){listening=false;$("mic").classList.remove("on");};
-    rec.onerror=function(ev){
-      if(ev.error==="not-allowed"||ev.error==="service-not-allowed"){toast("Microfono bloccato qui: usa il microfono della tastiera");$("f-n").focus();}
-      else if(ev.error==="no-speech")toast("Non ho sentito nulla");
-      else toast("Dettatura interrotta ("+ev.error+")");
-    };
-    try{rec.start();listening=true;$("mic").classList.add("on");}catch(e){}
+    rec.onresult=function(ev){got=true;var t="";for(var i=0;i<ev.results.length;i++)t+=ev.results[i][0].transcript;$("f-n").value=(base?base+" ":"")+t;};
+    rec.onend=function(){clearTimeout(timer);listening=false;$("mic").classList.remove("on");if(!got&&!failed)tip();};
+    rec.onerror=function(ev){failed=true;if(ev.error==="no-speech")toast("Non ho sentito nulla");else tip();};
+    try{rec.start();listening=true;$("mic").classList.add("on");timer=setTimeout(function(){if(listening&&!got){try{rec.stop();}catch(e){}}},6000);}catch(e){tip();}
   };
   idbOpen();
   render();
+  document.addEventListener("visibilitychange",function(){if(!document.hidden&&!$("bg").classList.contains("on"))render();});
 
   if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){});});}
 })();

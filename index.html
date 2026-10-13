@@ -32,6 +32,12 @@ button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px soli
 .tools .pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
 .tools .full{flex:1 1 100%}
 .tools .dg{color:#C0392B}
+.seg{display:flex;gap:6px;background:var(--bg);padding:4px;border-radius:12px;margin:4px 0 2px}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;padding:10px 6px;font-size:14px;font-weight:500;color:var(--mute)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.g2>div{min-width:0}
+.g2 input{min-width:0;min-height:46px;font-size:16px;padding:10px 8px}
 .toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.25s;z-index:30;max-width:90%;text-align:center}
 .toast.on{opacity:1;transform:translateX(-50%)}
 .ai{display:flex;align-items:center;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
@@ -119,6 +125,7 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
   <button id="m-save">Salva mese</button>
   <button class="dg" id="m-reset">Azzera mese</button>
   <button id="m-arch">Archivio</button>
+  <button class="full" id="m-exp">Esporta PDF / Excel</button>
 </div>
 <main class="list" id="list"></main>
 <p class="note">I dati restano salvati su questo telefono, dentro l'app.</p>
@@ -159,6 +166,20 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
     <h2>Mesi salvati</h2>
     <div id="arch"></div>
     <div class="acts"><button id="a-no">Chiudi</button></div>
+  </div>
+</div>
+
+<div class="sheet-bg" id="bg5">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2>Esporta</h2>
+    <div class="calc" id="x-info"></div>
+    <div class="seg"><button type="button" id="x-m1" class="on">Mese</button><button type="button" id="x-m2">Periodo a scelta</button></div>
+    <div class="g2" id="x-range" style="display:none">
+      <div><label for="x-da">Dal</label><input type="date" id="x-da"></div>
+      <div><label for="x-a">Al</label><input type="date" id="x-a"></div>
+    </div>
+    <div class="acts"><button class="save" id="x-pdf">Scarica PDF</button><button class="save" id="x-xls">Scarica Excel</button></div>
+    <div class="acts"><button id="x-no">Chiudi</button></div>
   </div>
 </div>
 
@@ -256,7 +277,7 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
     $("sh-calc").textContent=m>0?"Totale della giornata: "+fmt(m)+" ore":"Nessuna ora registrata";
   }
   ["f-s","f-e","f-p","f-h"].forEach(function(i){$(i).addEventListener("input",calc)});
-  function close(){try{if(rec&&listening)rec.stop();}catch(e){}stopVoice(true);$("bg4").classList.remove("on");$("bg").classList.remove("on");$("bg2").classList.remove("on");$("bg3").classList.remove("on");}
+  function close(){try{if(rec&&listening)rec.stop();}catch(e){}stopVoice(true);$("bg4").classList.remove("on");$("bg").classList.remove("on");$("bg2").classList.remove("on");$("bg3").classList.remove("on");$("bg5").classList.remove("on");}
 
   $("list").addEventListener("click",function(ev){var b=ev.target.closest(".row");if(b)open(b.dataset.k);});
   $("b-no").onclick=close;$("c-no").onclick=function(){$("bg2").classList.remove("on");};
@@ -422,6 +443,213 @@ input,textarea{width:100%;font:inherit;font-size:17px;padding:11px 12px;border:1
       toast(err&&err.name==="NotAllowedError"?"Microfono non consentito: abilitalo per questa app nelle impostazioni del telefono":"Microfono non disponibile");
     });
   };
+  /* ---------- esporta PDF / Excel: mese visualizzato o periodo a scelta ---------- */
+  var xMode="mese";
+  function iso(d){return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());}
+  function itd(d){return pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+d.getFullYear();}
+  function fromIso(s){var p=String(s||"").split("-");if(p.length!==3)return null;var d=new Date(+p[0],+p[1]-1,+p[2]);return isNaN(d)?null:d;}
+  function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+  function decIt(m){return (Math.round(m/60*100)/100).toFixed(2).replace(".",",");}
+  function manual(en){return en.h!==""&&en.h!=null;}
+  function orario(en){return manual(en)?"a mano":(en.s&&en.e?en.s+"–"+en.e:(en.s?"dalle "+en.s:""));}
+  function notaX(en){var t=en.n||"",x=[];if(en.ph&&en.ph.length)x.push(en.ph.length+" foto");if(en.v&&en.v.length)x.push(en.v.length+(en.v.length===1?" vocale":" vocali"));return t+(x.length?(t?" ":"")+"("+x.join(", ")+")":"");}
+  function xRange(){
+    if(xMode==="mese")return {a:new Date(vy,vm,1),b:new Date(vy,vm+1,0),t:MES[vm]+" "+vy,f:MES[vm]+"-"+vy};
+    var a=fromIso($("x-da").value),b=fromIso($("x-a").value);
+    if(!a||!b)return null;
+    if(a>b){var t=a;a=b;b=t;}
+    return {a:a,b:b,t:"dal "+itd(a)+" al "+itd(b),f:iso(a)+"_"+iso(b)};
+  }
+  function xRows(r){
+    var out=[],sum=0,days=0,d=new Date(r.a.getFullYear(),r.a.getMonth(),r.a.getDate());
+    while(d<=r.b){
+      var en=db.entries[key(d.getFullYear(),d.getMonth(),d.getDate())];
+      if(en&&((en.m>0)||en.n||(en.ph&&en.ph.length)||(en.v&&en.v.length))){var m=en.m>0?en.m:0;sum+=m;if(m>0)days++;out.push({d:new Date(d),en:en,m:m,cum:sum});}
+      d.setDate(d.getDate()+1);
+    }
+    return {rows:out,sum:sum,days:days};
+  }
+  function xInfo(){
+    var r=xRange(),el=$("x-info");
+    if(!r){el.textContent="Scegli la data di inizio e quella di fine.";return;}
+    var x=xRows(r);
+    el.textContent=cap(r.t)+": "+(x.rows.length?fmt(x.sum)+" ore in "+x.days+(x.days===1?" giorno lavorato":" giorni lavorati"):"nessuna giornata segnata");
+  }
+  function setXMode(m){xMode=m;$("x-m1").className=m==="mese"?"on":"";$("x-m2").className=m==="periodo"?"on":"";$("x-range").style.display=m==="periodo"?"grid":"none";xInfo();}
+  $("m-exp").onclick=function(){
+    $("x-da").value=iso(new Date(vy,vm,1));$("x-a").value=iso(new Date(vy,vm+1,0));
+    $("x-m1").textContent="Mese di "+MES[vm];setXMode("mese");$("bg5").classList.add("on");
+  };
+  $("x-m1").onclick=function(){setXMode("mese");};$("x-m2").onclick=function(){setXMode("periodo");};
+  ["x-da","x-a"].forEach(function(i){$(i).addEventListener("change",xInfo);$(i).addEventListener("input",xInfo);});
+  $("x-no").onclick=close;
+  $("bg5").addEventListener("click",function(e){if(e.target===$("bg5"))close();});
+  function dl(blob,name){var u=URL.createObjectURL(blob),a=document.createElement("a");a.href=u;a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(u);a.remove();},4000);}
+  function xGo(kind){
+    var r=xRange();if(!r){toast("Scegli la data di inizio e quella di fine");return;}
+    var x=xRows(r);if(!x.rows.length){toast("Nessuna giornata segnata in questo periodo");return;}
+    try{
+      if(kind==="pdf")dl(makePdf(r,x),"Ore-"+r.f+".pdf");else dl(makeXlsx(r,x),"Ore-"+r.f+".xlsx");
+      toast((kind==="pdf"?"PDF":"File Excel")+" scaricato: lo trovi nei Download");
+    }catch(e){toast("Impossibile creare il file");}
+  }
+  $("x-pdf").onclick=function(){xGo("pdf");};$("x-xls").onclick=function(){xGo("xls");};
+
+  /* PDF A4 creato direttamente nell'app (carattere Helvetica, funziona anche senza internet) */
+  var HW=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,761,556,0,222,556,333,1000,556,556,333,1000,667,333,1000,0,611,0,0,222,222,333,333,350,556,1000,333,1000,500,333,944,0,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500];
+  var HWB=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,761,556,0,278,556,500,1000,556,556,333,1000,667,333,1000,0,611,0,0,278,278,500,500,350,556,1000,333,1000,556,333,944,0,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556];
+  function wa(s){var map={8211:150,8212:151,8216:145,8217:146,8220:147,8221:148,8226:149,8230:133,8364:128},o="";
+    s=String(s==null?"":s);for(var i=0;i<s.length;i++){var c=s.charCodeAt(i);
+      if((c>=32&&c<=126)||(c>=160&&c<=255))o+=String.fromCharCode(c);else if(map[c])o+=String.fromCharCode(map[c]);else if(c===9||c===10||c===13)o+=" ";else o+="?";}
+    return o;}
+  function tw(s,size,bold){var t=bold?HWB:HW,w=0;for(var i=0;i<s.length;i++){var c=s.charCodeAt(i);w+=(c>=32&&c<=255?t[c-32]:556)||556;}return w*size/1000;}
+  function pesc(s){return s.replace(/\\/g,"\\\\").replace(/\(/g,"\\(").replace(/\)/g,"\\)");}
+  function wrapT(s,size,maxw){
+    var words=s.split(" "),lines=[],cur="";
+    words.forEach(function(w){
+      var t=cur?cur+" "+w:w;
+      if(tw(t,size)<=maxw){cur=t;return;}
+      if(cur)lines.push(cur);
+      while(w&&tw(w,size)>maxw){var k=w.length;while(k>1&&tw(w.slice(0,k),size)>maxw)k--;lines.push(w.slice(0,k));w=w.slice(k);}
+      cur=w;
+    });
+    if(cur||!lines.length)lines.push(cur);
+    return lines;
+  }
+  function makePdf(r,x){
+    var W=595.28,H=841.89,M=40,pages=[],ops=[],y=0,fs=9,lh=11.5;
+    var cols=[{t:"Data",w:62},{t:"Giorno",w:40},{t:"Orario",w:74},{t:"Pausa",w:38,r:1},{t:"Ore",w:40,r:1},{t:"Progressivo",w:60,r:1},{t:"Nota",w:0}];
+    var used=0;for(var c0=0;c0<6;c0++)used+=cols[c0].w;cols[6].w=W-2*M-used;
+    function T(s,xx,yy,size,bold){ops.push("0 g BT /"+(bold?"F2":"F1")+" "+size+" Tf "+xx.toFixed(2)+" "+yy.toFixed(2)+" Td ("+pesc(s)+") Tj ET");}
+    function TR(s,xr,yy,size,bold){T(s,xr-tw(s,size,bold),yy,size,bold);}
+    function L(yy){ops.push("0.8 G 0.5 w "+M+" "+yy.toFixed(2)+" m "+(W-M).toFixed(2)+" "+yy.toFixed(2)+" l S");}
+    function R(yy,h){ops.push("0.92 g "+M+" "+(yy-h).toFixed(2)+" "+(W-2*M).toFixed(2)+" "+h+" re f");}
+    function header(){
+      R(y,18);var xx=M;
+      cols.forEach(function(c){var s=wa(c.t);if(c.r)TR(s,xx+c.w-4,y-12.5,8.5,true);else T(s,xx+4,y-12.5,8.5,true);xx+=c.w;});
+      y-=18;
+    }
+    function page(first){
+      if(ops.length)pages.push(ops.join("\n"));
+      ops=[];y=H-M;
+      if(first){
+        T(wa("Ore di lavoro"),M,y-16,18,true);y-=36;
+        T(wa(cap(r.t)),M,y,11.5,false);y-=20;
+        T(wa("Totale ore: "+fmt(x.sum)+" ("+decIt(x.sum)+")      Giorni lavorati: "+x.days),M,y,10.5,true);y-=18;
+      }
+      header();
+    }
+    page(true);
+    x.rows.forEach(function(o){
+      var en=o.en,note=wrapT(wa(notaX(en)),fs,cols[6].w-8),h=note.length*lh+6;
+      if(y-h<M+30)page(false);
+      var p=parseInt(en.p)||0;
+      var cells=[itd(o.d),GIO[o.d.getDay()],orario(en),(!manual(en)&&p>0)?p+"'":"",o.m>0?fmt(o.m):"",o.m>0?fmt(o.cum):""];
+      var xx=M,ty=y-lh+1;
+      cells.forEach(function(v,i){var c=cols[i],s=wa(v);if(c.r)TR(s,xx+c.w-4,ty,fs,i===4);else T(s,xx+4,ty,fs,false);xx+=c.w;});
+      note.forEach(function(ln,i){T(ln,xx+4,ty-i*lh,fs,false);});
+      y-=h;L(y);
+    });
+    if(y-24<M+30)page(false);
+    R(y,18);
+    var tx=M;for(var i=0;i<4;i++)tx+=cols[i].w;
+    T(wa("Totale"),M+4,y-12.5,9,true);
+    TR(wa(fmt(x.sum)),tx+cols[4].w-4,y-12.5,9,true);
+    pages.push(ops.join("\n"));
+    var N=pages.length,gen=wa("Creato il "+itd(new Date()));
+    pages=pages.map(function(pg,i){var pn=wa("Pagina "+(i+1)+" di "+N);
+      return pg+"\n0.45 g BT /F1 8 Tf "+M+" 24 Td ("+pesc(gen)+") Tj ET\nBT /F1 8 Tf "+(W-M-tw(pn,8)).toFixed(2)+" 24 Td ("+pesc(pn)+") Tj ET";});
+    var objs=[],kids=[];
+    for(var k=0;k<N;k++)kids.push((5+2*k)+" 0 R");
+    objs[1]="<< /Type /Catalog /Pages 2 0 R >>";
+    objs[2]="<< /Type /Pages /Kids ["+kids.join(" ")+"] /Count "+N+" >>";
+    objs[3]="<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+    objs[4]="<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
+    pages.forEach(function(pg,i){
+      objs[5+2*i]="<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "+W+" "+H+"] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents "+(6+2*i)+" 0 R >>";
+      objs[6+2*i]="<< /Length "+pg.length+" >>\nstream\n"+pg+"\nendstream";
+    });
+    var out="%PDF-1.4\n%\xE2\xE3\xCF\xD3\n",offs=[];
+    for(var n=1;n<objs.length;n++){offs[n]=out.length;out+=n+" 0 obj\n"+objs[n]+"\nendobj\n";}
+    var xref=out.length;
+    out+="xref\n0 "+objs.length+"\n0000000000 65535 f \n";
+    for(var n2=1;n2<objs.length;n2++)out+=("0000000000"+offs[n2]).slice(-10)+" 00000 n \n";
+    out+="trailer\n<< /Size "+objs.length+" /Root 1 0 R /Info << /Title ("+pesc(wa("Ore di lavoro - "+cap(r.t)))+") >> >>\nstartxref\n"+xref+"\n%%EOF\n";
+    var bytes=new Uint8Array(out.length);for(var j=0;j<out.length;j++)bytes[j]=out.charCodeAt(j)&255;
+    return new Blob([bytes],{type:"application/pdf"});
+  }
+
+  /* Excel (.xlsx) creato nell'app: date vere, ore in formato [h]:mm, totali con SOMMA */
+  var CRC=null;
+  function crc32(u){if(!CRC){CRC=[];for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++)c=c&1?(0xEDB88320^(c>>>1)):(c>>>1);CRC[n]=c>>>0;}}
+    var r=0xFFFFFFFF;for(var i=0;i<u.length;i++)r=CRC[(r^u[i])&255]^(r>>>8);return (r^0xFFFFFFFF)>>>0;}
+  function u8(s){return new TextEncoder().encode(s);}
+  function zipBlob(files,mime){
+    function u16(v){return [v&255,(v>>>8)&255];}
+    function u32(v){return [v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255];}
+    var parts=[],cd=[],off=0,cdSize=0;
+    files.forEach(function(f){
+      var nm=u8(f.n),d=u8(f.d),crc=crc32(d);
+      var h=[].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0x21),u32(crc),u32(d.length),u32(d.length),u16(nm.length),u16(0));
+      parts.push(new Uint8Array(h),nm,d);
+      var ch=[].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0x21),u32(crc),u32(d.length),u32(d.length),u16(nm.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(off));
+      cd.push(new Uint8Array(ch),nm);cdSize+=ch.length+nm.length;
+      off+=h.length+nm.length+d.length;
+    });
+    var end=[].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(cdSize),u32(off),u16(0));
+    return new Blob(parts.concat(cd,[new Uint8Array(end)]),{type:mime});
+  }
+  function xe(s){return String(s==null?"":s).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,"").replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]});}
+  function makeXlsx(r,x){
+    var rows=[],rn=0,L="ABCDEFGHI";
+    function cS(ref,v,s){return '<c r="'+ref+'" t="inlineStr"'+(s?' s="'+s+'"':'')+'><is><t xml:space="preserve">'+xe(v)+'</t></is></c>';}
+    function cN(ref,v,s){return '<c r="'+ref+'"'+(s?' s="'+s+'"':'')+'><v>'+v+'</v></c>';}
+    function row(cells){rn++;var h="";cells.forEach(function(f,i){if(f)h+=f(L.charAt(i)+rn);});rows.push('<row r="'+rn+'">'+h+'</row>');}
+    row([function(c){return cS(c,"Ore di lavoro",4);}]);
+    row([function(c){return cS(c,cap(r.t));}]);
+    row([]);
+    row(["Data","Giorno","Inizio","Fine","Pausa (min)","Ore","Ore decimali","Progressivo","Nota"].map(function(t){return function(c){return cS(c,t,4);};}));
+    var first=rn+1;
+    x.rows.forEach(function(o){
+      var en=o.en,man=manual(en),p=parseInt(en.p)||0,serial=Math.round((Date.UTC(o.d.getFullYear(),o.d.getMonth(),o.d.getDate())-Date.UTC(1899,11,30))/864e5);
+      row([
+        function(c){return cN(c,serial,1);},
+        function(c){return cS(c,GIO[o.d.getDay()]);},
+        (!man&&en.s)?function(c){return cS(c,en.s);}:null,
+        (!man&&en.e)?function(c){return cS(c,en.e);}:null,
+        (!man&&p>0)?function(c){return cN(c,p);}:null,
+        o.m>0?function(c){return cN(c,o.m/1440,2);}:null,
+        o.m>0?function(c){return cN(c,Math.round(o.m/60*100)/100,3);}:null,
+        o.m>0?function(c){return cN(c,o.cum/1440,2);}:null,
+        function(c){return cS(c,notaX(en),7);}
+      ]);
+    });
+    var last=rn;
+    row([function(c){return cS(c,"Totale",4);},null,null,null,null,
+      function(c){return '<c r="'+c+'" s="5"><f>SUM(F'+first+':F'+last+')</f><v>'+(x.sum/1440)+'</v></c>';},
+      function(c){return '<c r="'+c+'" s="6"><f>SUM(G'+first+':G'+last+')</f><v>'+(Math.round(x.sum/60*100)/100)+'</v></c>';}]);
+    var W=[12,8,8,8,11,9,12,12,60],cols="";W.forEach(function(w,i){cols+='<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>';});
+    var NS='xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"',HD='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+    var sheet=HD+'<worksheet '+NS+' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/><cols>'+cols+'</cols><sheetData>'+rows.join("")+'</sheetData><pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToHeight="0"/></worksheet>';
+    var xf=function(nf,font,extra){return '<xf numFmtId="'+nf+'" fontId="'+font+'" fillId="0" borderId="0" xfId="0"'+(nf?' applyNumberFormat="1"':'')+(font?' applyFont="1"':'')+(extra?' applyAlignment="1">'+extra+'</xf>':'/>');};
+    var styles=HD+'<styleSheet '+NS+'><numFmts count="2"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/><numFmt numFmtId="165" formatCode="[h]:mm"/></numFmts>'+
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>'+
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'+
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'+
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+      '<cellXfs count="8">'+xf(0,0)+xf(164,0)+xf(165,0)+xf(2,0)+xf(0,1)+xf(165,1)+xf(2,1)+xf(0,0,'<alignment wrapText="1" vertical="top"/>')+'</cellXfs>'+
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+    var files=[
+      {n:"[Content_Types].xml",d:HD+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'},
+      {n:"_rels/.rels",d:HD+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+      {n:"xl/workbook.xml",d:HD+'<workbook '+NS+' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Ore" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+      {n:"xl/_rels/workbook.xml.rels",d:HD+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'},
+      {n:"xl/worksheets/sheet1.xml",d:sheet},
+      {n:"xl/styles.xml",d:styles}
+    ];
+    return zipBlob(files,"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  }
+
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   $("mic").onclick=function(){
     var tip=function(){toast("Per dettare usa il microfono della tastiera");$("f-n").focus();};
